@@ -3,7 +3,7 @@ const { GoogleSpreadsheet } = require('google-spreadsheet');
 const { JWT } = require('google-auth-library');
 
 async function run() {
-    console.log("Đang bắt đầu quét theo tọa độ bạn gửi...");
+    console.log("Đang bắt đầu quét bài viết và lấy ngày đăng thực tế...");
     
     const creds = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON);
     const serviceAccountAuth = new JWT({
@@ -22,30 +22,31 @@ async function run() {
     });
     const page = await context.newPage();
     
-    // Vào link danh mục bạn đã chọn
     await page.goto('https://banhang.shopee.vn/edu/category?sub_cat_id=1006', { waitUntil: 'networkidle' });
     
-    // Đợi cho danh sách bài viết (thẻ <ul>) hiện ra
-    await page.waitForSelector('section.category-main div ul');
-    await page.waitForTimeout(3000); // Đợi thêm 3s cho chắc chắn
+    await page.waitForSelector('section.category-main div ul li');
+    await page.waitForTimeout(3000); 
 
     const articles = await page.evaluate(() => {
-        // Dựa trên selector bạn gửi: #app > div.content > section > section.category-main > div > ul > li
         const items = document.querySelectorAll('section.category-main div ul li');
         
         return Array.from(items).map(el => {
             const linkTag = el.querySelector('a');
             const titleTag = el.querySelector('.article-title');
+            // Lấy ngày đăng từ class .bottom-time mà bạn đã soi
+            const dateTag = el.querySelector('.bottom-time');
             
             return {
                 title: titleTag ? titleTag.innerText.trim() : '',
                 link: linkTag ? linkTag.href : '',
-                id: linkTag ? linkTag.href.split('/').pop() : ''
+                id: linkTag ? linkTag.href.split('/').pop() : '',
+                // Nếu tìm thấy thẻ ngày thì lấy chữ bên trong, không thì để trống
+                publishedDate: dateTag ? dateTag.innerText.trim() : ''
             };
-        }).filter(item => item.title !== ''); // Loại bỏ những dòng trống
+        }).filter(item => item.title !== '');
     });
 
-    console.log(`Tìm thấy ${articles.length} bài viết khớp với cấu trúc bạn soi.`);
+    console.log(`Tìm thấy ${articles.length} bài viết.`);
 
     const rows = await sheet.getRows();
     const existingIds = rows.map(r => r.toObject()['ID Bài viết']);
@@ -57,9 +58,9 @@ async function run() {
                 'ID Bài viết': art.id,
                 'Tiêu đề': art.title,
                 'Đường dẫn': art.link,
-                'Ngày đăng': new Date().toLocaleDateString('vi-VN')
+                'Ngày đăng': art.publishedDate // Giờ nó sẽ điền đúng ngày từ web Shopee
             });
-            console.log(`Đã thêm: ${art.title}`);
+            console.log(`Đã thêm: ${art.title} (Ngày: ${art.publishedDate})`);
             newPostsCount++;
         }
     }
