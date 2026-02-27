@@ -1,0 +1,7 @@
+{
+  "dependencies": {
+    "playwright": "latest",
+    "google-spreadsheet": "latest",
+    "google-auth-library": "latest"
+  }
+}
