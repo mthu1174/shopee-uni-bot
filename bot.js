@@ -8,7 +8,8 @@ async function run() {
     // 1. Danh sách các danh mục bạn muốn quét (Có thể thêm bớt ở đây)
     const categories = [
         { id: '1006', name: 'Vận hành' },
-        { id: '1726', name: 'Cập nhật mới nhất' }
+        { id: '1726', name: 'Cập nhật mới nhất' },
+        { id: '2148', name: 'Phương thức vận chuyển Shopee'}
     ];
 
     // 2. Kết nối Google Sheet bằng Service Account
