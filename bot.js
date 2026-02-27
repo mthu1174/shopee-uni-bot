@@ -3,9 +3,8 @@ const { GoogleSpreadsheet } = require('google-spreadsheet');
 const { JWT } = require('google-auth-library');
 
 async function run() {
-    console.log("Đang bắt đầu quá trình kiểm tra bài viết mới...");
+    console.log("Đang bắt đầu quét theo tọa độ bạn gửi...");
     
-    // 1. Cấu hình bảo mật
     const creds = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON);
     const serviceAccountAuth = new JWT({
         email: creds.client_email,
@@ -13,32 +12,42 @@ async function run() {
         scopes: ['https://www.googleapis.com/auth/spreadsheets'],
     });
 
-    // 1eAqPpi-ZyPEbTSDWw8OE1ngv07jjiwUAQy-XPYMutdY là ID file của bạn
     const doc = new GoogleSpreadsheet('1eAqPpi-ZyPEbTSDWw8OE1ngv07jjiwUAQy-XPYMutdY', serviceAccountAuth);
-    
     await doc.loadInfo();
     const sheet = doc.sheetsByIndex[0]; 
 
-    // 2. Mở trình duyệt cào Shopee
     const browser = await chromium.launch({ headless: true });
-    const page = await browser.newPage();
-    await page.goto('https://banhang.shopee.vn/edu/category?sub_cat_id=1006');
-    await page.waitForTimeout(5000);
+    const context = await browser.newContext({
+        userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    });
+    const page = await context.newPage();
+    
+    // Vào link danh mục bạn đã chọn
+    await page.goto('https://banhang.shopee.vn/edu/category?sub_cat_id=1006', { waitUntil: 'networkidle' });
+    
+    // Đợi cho danh sách bài viết (thẻ <ul>) hiện ra
+    await page.waitForSelector('section.category-main div ul');
+    await page.waitForTimeout(3000); // Đợi thêm 3s cho chắc chắn
 
     const articles = await page.evaluate(() => {
-        const items = document.querySelectorAll('.article-card');
-        return Array.from(items).map(el => ({
-            title: el.innerText.split('\n')[0].trim(),
-            link: el.querySelector('a') ? el.querySelector('a').href : '',
-            id: el.querySelector('a') ? el.querySelector('a').href.split('/').pop() : ''
-        }));
+        // Dựa trên selector bạn gửi: #app > div.content > section > section.category-main > div > ul > li
+        const items = document.querySelectorAll('section.category-main div ul li');
+        
+        return Array.from(items).map(el => {
+            const linkTag = el.querySelector('a');
+            const titleTag = el.querySelector('.article-title');
+            
+            return {
+                title: titleTag ? titleTag.innerText.trim() : '',
+                link: linkTag ? linkTag.href : '',
+                id: linkTag ? linkTag.href.split('/').pop() : ''
+            };
+        }).filter(item => item.title !== ''); // Loại bỏ những dòng trống
     });
 
-    console.log(`Tìm thấy ${articles.length} bài viết.`);
+    console.log(`Tìm thấy ${articles.length} bài viết khớp với cấu trúc bạn soi.`);
 
-    // 3. Đọc dữ liệu và ghi vào Sheet
     const rows = await sheet.getRows();
-    // Lưu ý: Tên cột phải khớp chính xác với hàng 1 trong Sheet của bạn
     const existingIds = rows.map(r => r.toObject()['ID Bài viết']);
 
     let newPostsCount = 0;
