@@ -1,0 +1,27 @@
+name: TikTok Academy Bot
+
+on:
+  schedule:
+    - cron: '30 1 * * *' # Chạy lúc 8:30 sáng VN (sau bot Shopee 30p cho đỡ nghẽn)
+  workflow_dispatch:
+
+jobs:
+  run-tiktok:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Set up Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: '3.9'
+
+      - name: Install dependencies
+        run: pip install requests gspread oauth2client
+
+      - name: Create credentials.json
+        run: echo '${{ secrets.GOOGLE_CREDS }}' > credentials.json
+
+      - name: Run TikTok Bot
+        run: python tiktok_bot.py
