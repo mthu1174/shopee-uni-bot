@@ -1,62 +1,72 @@
 const { GoogleSpreadsheet } = require('google-spreadsheet');
 const { JWT } = require('google-auth-library');
-const axios = require('axios');
+const { chromium } = require('playwright'); // Dùng Playwright giống Shopee nè
 
 async function runTikTokBot() {
-    // 1. Cấu hình xác thực
+    // 1. Xác thực Google Sheet (Giữ nguyên)
     const serviceAccountAuth = new JWT({
         email: JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON).client_email,
         key: JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON).private_key,
         scopes: ['https://www.googleapis.com/auth/spreadsheets'],
     });
 
-    // 2. Mở file Google Sheet (Thay ID file của bạn vào đây)
-    const doc = new GoogleSpreadsheet('1eAqPpi-ZyPEbTSDWw8OE1ngv07jjiwUAQy-XPYMutdY', serviceAccountAuth);
+    const doc = new GoogleSpreadsheet('ID_FILE_CỦA_MAI_THU', serviceAccountAuth);
     await doc.loadInfo();
-    const sheet = doc.sheetsByTitle['TikTok']; 
+    const sheet = doc.sheetsByTitle['TikTok'];
 
-    // 3. Gọi API TikTok Academy để lấy bài mới
-    const url = "https://seller-vn.tiktok.com/university/api/knowledge/get_knowledge_list";
+    // 2. Mở trình duyệt ảo để "vượt rào" TikTok
+    const browser = await chromium.launch({ headless: true });
+    const context = await browser.newContext();
+    const page = await context.newPage();
+
+    console.log("🚀 Đang truy cập TikTok Academy...");
     
-    const response = await axios.get(url, {
-        params: {
-            page_size: 10,
-            page_number: 1,
-            region: "VN"
-        },
-        headers: {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Referer": "https://seller-vn.tiktok.com/university/home",
-            "Accept": "application/json"
-        }
+    // Chặn các yêu cầu thừa cho nhẹ máy
+    await page.route('**/*.{png,jpg,jpeg,svg,css}', route => route.abort());
+
+    // Đi đến trang danh sách bài viết
+    await page.goto('https://seller-vn.tiktok.com/university/home', { waitUntil: 'networkidle' });
+
+    // Đợi 1 chút cho API nó load xong bài viết
+    await page.waitForTimeout(5000);
+
+    // 3. "Móc" dữ liệu trực tiếp từ cửa sổ trình duyệt (Bí kíp ở đây)
+    const articles = await page.evaluate(() => {
+        const results = [];
+        // Tìm tất cả các link có chứa knowledge_id
+        const links = document.querySelectorAll('a[href*="knowledge_id="]');
+        links.forEach(link => {
+            const url = new URL(link.href);
+            const id = url.searchParams.get('knowledge_id');
+            const title = link.innerText.trim();
+            if (id && title && !results.find(r => r.id === id)) {
+                results.push({ id, title, link: link.href });
+            }
+        });
+        return results;
     });
 
-    // Thêm dòng kiểm tra này để nếu lỗi mình biết ngay tại sao
-    if (!response.data || !response.data.data) {
-        console.error("❌ Không lấy được dữ liệu từ TikTok. Phản hồi:", JSON.stringify(response.data));
+    await browser.close();
+
+    if (articles.length === 0) {
+        console.log("❌ Không tìm thấy bài viết nào. Có thể trang web đã đổi cấu trúc.");
         return;
     }
 
-    const items = response.data.data.list;
-
-    // Lấy danh sách ID đã có để check trùng
+    // 4. Ghi vào Google Sheet
     const rows = await sheet.getRows();
     const existingIds = rows.map(row => row.get('Knowledge_ID'));
+    const today = new Date().toLocaleDateString('en-CA'); // yyyy-mm-dd
 
-    const today = new Date().toISOString().split('T')[0]; // Định dạng yyyy-mm-dd
-
-    for (const item of items) {
-        const kId = item.knowledge_id.toString();
-        if (!existingIds.includes(kId)) {
+    for (const art of articles) {
+        if (!existingIds.includes(art.id)) {
             await sheet.addRow({
-                'Knowledge_ID': kId,
-                'Tieu_de': item.title,
-                'Link': `https://seller-vn.tiktok.com/university/essay?knowledge_id=${kId}`,
+                'Knowledge_ID': art.id,
+                'Tieu_de': art.title,
+                'Link': art.link,
                 'Gio_quet': today
             });
-            console.log(`✅ Đã thêm bài TikTok: ${item.title}`);
-        } else {
-            console.log(`⏭️ Đã có bài: ${item.title}`);
+            console.log(`✅ Thêm mới: ${art.title}`);
         }
     }
 }
