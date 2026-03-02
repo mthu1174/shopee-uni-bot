@@ -16,8 +16,27 @@ async function runTikTokBot() {
     const sheet = doc.sheetsByTitle['TikTok']; 
 
     // 3. Gọi API TikTok Academy để lấy bài mới
-    const url = "https://seller-vn.tiktok.com/university/api/knowledge/get_knowledge_list?page_size=10&page_number=1&region=VN";
-    const response = await axios.get(url);
+    const url = "https://seller-vn.tiktok.com/university/api/knowledge/get_knowledge_list";
+    
+    const response = await axios.get(url, {
+        params: {
+            page_size: 10,
+            page_number: 1,
+            region: "VN"
+        },
+        headers: {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Referer": "https://seller-vn.tiktok.com/university/home",
+            "Accept": "application/json"
+        }
+    });
+
+    // Thêm dòng kiểm tra này để nếu lỗi mình biết ngay tại sao
+    if (!response.data || !response.data.data) {
+        console.error("❌ Không lấy được dữ liệu từ TikTok. Phản hồi:", JSON.stringify(response.data));
+        return;
+    }
+
     const items = response.data.data.list;
 
     // Lấy danh sách ID đã có để check trùng
