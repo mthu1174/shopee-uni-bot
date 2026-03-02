@@ -10,7 +10,7 @@ async function runTikTokBot() {
         scopes: ['https://www.googleapis.com/auth/spreadsheets'],
     });
 
-    const doc = new GoogleSpreadsheet('ID_FILE_CỦA_MAI_THU', serviceAccountAuth);
+    const doc = new GoogleSpreadsheet('1eAqPpi-ZyPEbTSDWw8OE1ngv07jjiwUAQy-XPYMutdY', serviceAccountAuth);
     await doc.loadInfo();
     const sheet = doc.sheetsByTitle['TikTok'];
 
