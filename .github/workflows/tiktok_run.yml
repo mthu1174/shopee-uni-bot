@@ -1,7 +1,7 @@
 name: Auto Update TikTok Shop
 on:
   schedule:
-    - cron: '30 1 * * *' # 8h30 sáng VN (sau Shopee 30p)
+    - cron: '30 1 * * *' # 8h30 sáng VN
   workflow_dispatch:
 
 jobs:
@@ -14,6 +14,7 @@ jobs:
           node-version: 18
       - name: Install dependencies
         run: |
+          # Mình bỏ playwright đi cho nhẹ, chỉ cài những cái thực sự dùng
           npm install axios google-spreadsheet google-auth-library
       - name: Run TikTok Crawler
         env:
