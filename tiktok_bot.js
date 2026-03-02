@@ -1,9 +1,9 @@
 const { GoogleSpreadsheet } = require('google-spreadsheet');
 const { JWT } = require('google-auth-library');
-const { chromium } = require('playwright'); // Dùng Playwright giống Shopee nè
+const axios = require('axios');
 
 async function runTikTokBot() {
-    // 1. Xác thực Google Sheet (Giữ nguyên)
+    // 1. Cấu hình xác thực Google Sheet
     const serviceAccountAuth = new JWT({
         email: JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON).client_email,
         key: JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON).private_key,
@@ -14,59 +14,64 @@ async function runTikTokBot() {
     await doc.loadInfo();
     const sheet = doc.sheetsByTitle['TikTok'];
 
-    // 2. Mở trình duyệt ảo để "vượt rào" TikTok
-    const browser = await chromium.launch({ headless: true });
-    const context = await browser.newContext();
-    const page = await context.newPage();
+    // 2. Danh sách các Danh mục lớn (Bạn thêm ID vào đây)
+    const categories = [
+        { name: "Tài chính", id: "2968734088120080" }, // ID ví dụ từ link bạn gửi
+        // { name: "Vận hành", id: "ID_KHÁC" },
+    ];
 
-    console.log("🚀 Đang truy cập TikTok Academy...");
-    
-    // Chặn các yêu cầu thừa cho nhẹ máy
-    await page.route('**/*.{png,jpg,jpeg,svg,css}', route => route.abort());
-
-    // Đi đến trang danh sách bài viết
-    await page.goto('https://seller-vn.tiktok.com/university/home', { waitUntil: 'networkidle' });
-
-    // Đợi 1 chút cho API nó load xong bài viết
-    await page.waitForTimeout(5000);
-
-    // 3. "Móc" dữ liệu trực tiếp từ cửa sổ trình duyệt (Bí kíp ở đây)
-    const articles = await page.evaluate(() => {
-        const results = [];
-        // Tìm tất cả các link có chứa knowledge_id
-        const links = document.querySelectorAll('a[href*="knowledge_id="]');
-        links.forEach(link => {
-            const url = new URL(link.href);
-            const id = url.searchParams.get('knowledge_id');
-            const title = link.innerText.trim();
-            if (id && title && !results.find(r => r.id === id)) {
-                results.push({ id, title, link: link.href });
-            }
-        });
-        return results;
-    });
-
-    await browser.close();
-
-    if (articles.length === 0) {
-        console.log("❌ Không tìm thấy bài viết nào. Có thể trang web đã đổi cấu trúc.");
-        return;
-    }
-
-    // 4. Ghi vào Google Sheet
-    const rows = await sheet.getRows();
-    const existingIds = rows.map(row => row.get('Knowledge_ID'));
-    const today = new Date().toLocaleDateString('en-CA'); // yyyy-mm-dd
-
-    for (const art of articles) {
-        if (!existingIds.includes(art.id)) {
-            await sheet.addRow({
-                'Knowledge_ID': art.id,
-                'Tieu_de': art.title,
-                'Link': art.link,
-                'Gio_quet': today
+    for (const cat of categories) {
+        console.log(`--- Đang quét danh mục: ${cat.name} ---`);
+        
+        const url = `https://seller-vn.tiktok.com/university/api/knowledge/get_knowledge_list`;
+        
+        try {
+            const response = await axios.get(url, {
+                params: {
+                    page_size: 20,
+                    page_number: 1,
+                    region: "VN",
+                    category_id: cat.id
+                },
+                headers: {
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                    "Accept": "application/json"
+                }
             });
-            console.log(`✅ Thêm mới: ${art.title}`);
+
+            if (response.data && response.data.data) {
+                const items = response.data.data.list;
+                const rows = await sheet.getRows();
+                const existingIds = rows.map(row => row.get('Knowledge_ID'));
+
+                // Lấy thời gian hiện tại lúc quét (Giờ Việt Nam)
+                const now = new Date().toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' });
+
+                for (const item of items) {
+                    const kId = item.knowledge_id.toString();
+                    
+                    // Chuyển đổi Timestamp sang Ngày/Tháng/Năm
+                    const createDate = new Date(item.create_time).toLocaleDateString('vi-VN');
+                    const modifyDate = new Date(item.modify_time).toLocaleDateString('vi-VN');
+
+                    if (!existingIds.includes(kId)) {
+                        await sheet.addRow({
+                            'Knowledge_ID': kId,
+                            'Tên bài': item.title,
+                            'Ngày tạo': createDate,
+                            'Ngày chỉnh sửa': modifyDate,
+                            'Ngày giờ quét': now,          // <-- Cột mới thêm đây nè!
+                            'Chủ đề': cat.name,
+                            'Danh mục': "Phí của Nhà Bán Hàng", 
+                            'Tóm tắt': item.description,
+                            'Link': `https://seller-vn.tiktok.com/university/essay?knowledge_id=${kId}`
+                        });
+                        console.log(`✅ Đã lưu bài: ${item.title}`);
+                    }
+                }
+            }
+        } catch (error) {
+            console.error(`❌ Lỗi mục ${cat.name}:`, error.message);
         }
     }
 }
