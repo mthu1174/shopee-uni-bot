@@ -3,15 +3,8 @@ const { GoogleSpreadsheet } = require('google-spreadsheet');
 const { JWT } = require('google-auth-library');
 
 async function run() {
-    console.log("🚀 Khởi động bot quét Shopee Uni (Phiên bản chuyên nghiệp)...");
+    console.log("🚀 Khởi động bot Shopee Uni (Bản Map Chủ đề & Danh mục)...");
     
-    // 1. Cấu hình danh mục cần quét
-    const categories = [
-        { id: '1006', name: 'Vận hành' },
-        { id: '1726', name: 'Cập nhật mới nhất' }
-    ];
-
-    // 2. Kết nối Google Sheet
     const creds = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON);
     const serviceAccountAuth = new JWT({
         email: creds.client_email,
@@ -21,29 +14,45 @@ async function run() {
 
     const doc = new GoogleSpreadsheet('1eAqPpi-ZyPEbTSDWw8OE1ngv07jjiwUAQy-XPYMutdY', serviceAccountAuth);
     await doc.loadInfo();
-    const sheet = doc.sheetsByIndex[0]; 
 
-    // 3. Cấu hình trình duyệt
+    // 1. Đọc cấu hình từ tab Setup_Shopee
+    const setupSheet = doc.sheetsByTitle['Setup_Shopee'];
+    const setupRows = await setupSheet.getRows();
+    
+    const collections = setupRows.map(row => ({
+        chuDe: row.get('Chủ đề'),
+        danhMuc: row.get('Danh mục'),
+        id: row.get('ID_Mục')
+    })).filter(item => item.id);
+
+    if (collections.length === 0) {
+        console.log("⚠️ Tab Setup_Shopee trống!");
+        return;
+    }
+
+    const dataSheet = doc.sheetsByIndex[0]; // Tab chứa kết quả cuối cùng
+
+    // 2. Mở trình duyệt
     const browser = await chromium.launch({ headless: true });
     const context = await browser.newContext({
         userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
     });
     const page = await context.newPage();
 
-    let totalNewPosts = 0;
+    let totalNew = 0;
+    const nowTimestamp = new Date().toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' });
 
-    for (const cat of categories) {
-        console.log(`\n🔍 Đang kiểm tra mục: ${cat.name}`);
+    for (const col of collections) {
+        console.log(`\n🔍 Đang quét: ${col.chuDe} > ${col.danhMuc} (ID: ${col.id})`);
         
         try {
-            await page.goto(`https://banhang.shopee.vn/edu/category?sub_cat_id=${cat.id}`, { 
+            await page.goto(`https://banhang.shopee.vn/edu/category?sub_cat_id=${col.id}`, { 
                 waitUntil: 'networkidle', 
                 timeout: 60000 
             });
             
-            // Đợi danh sách bài viết hiển thị
             await page.waitForSelector('section.category-main div ul li', { timeout: 15000 });
-            await page.waitForTimeout(3000); 
+            await page.waitForTimeout(2000); 
 
             const articles = await page.evaluate(() => {
                 const items = document.querySelectorAll('section.category-main div ul li');
@@ -61,35 +70,31 @@ async function run() {
                 }).filter(item => item.title !== '');
             });
 
-            // Kiểm tra trùng lặp bằng ID
-            const rows = await sheet.getRows();
-            const existingIds = rows.map(r => r.toObject()['ID Bài viết']);
+            const rows = await dataSheet.getRows();
+            const existingIds = rows.map(r => r.get('ID Bài viết'));
 
             for (const art of articles) {
                 if (art.id && !existingIds.includes(art.id)) {
-                    // Ghi vào Sheet kèm theo Giờ quét (Timestamp)
-                    await sheet.addRow({
+                    await dataSheet.addRow({
                         'ID Bài viết': art.id,
-                        'Danh mục': cat.name,
+                        'Chủ đề': col.chuDe,      // Cột tự ghi từ Setup
+                        'Danh mục': col.danhMuc,    // Cột tự ghi từ Setup
                         'Tiêu đề': art.title,
                         'Đường dẫn': art.link,
                         'Ngày đăng': art.publishedDate,
-                        'Giờ quét': new Date().toISOString() // Định dạng chuẩn để Power Automate dễ lọc
+                        'Giờ quét': nowTimestamp
                     });
-                    console.log(`✅ Đã thêm: ${art.title}`);
-                    totalNewPosts++;
+                    console.log(`✅ Lưu bài: ${art.title}`);
+                    totalNew++;
                 }
             }
         } catch (e) {
-            console.error(`❌ Lỗi tại mục ${cat.name}:`, e.message);
+            console.error(`❌ Lỗi mục ${col.danhMuc}:`, e.message);
         }
     }
 
-    console.log(`\n🏁 Hoàn thành! Tổng cộng thêm mới: ${totalNewPosts} bài.`);
+    console.log(`\n🏁 Xong rồi Mai Thu! Tổng thêm mới: ${totalNew} bài.`);
     await browser.close();
 }
 
-run().catch(error => {
-    console.error("💥 Lỗi nghiêm trọng:", error);
-    process.exit(1);
-});
+run().catch(console.error);
